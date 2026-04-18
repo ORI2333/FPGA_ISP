@@ -1,0 +1,40 @@
+# ------------------------------------------------------------
+# Vivado: keep only reproducible project/source files
+# ------------------------------------------------------------
+
+# Vivado generated project directories (do not track)
+**/.Xil/
+**/*.cache/
+**/*.gen/
+**/*.hw/
+**/*.ip_user_files/
+**/*.runs/
+
+# Common Vivado/generated artifacts
+*.jou
+*.log
+*.pb
+*.wdf
+*.wdb
+*.str
+*.rpt
+*.rpx
+*.dcp
+*.vds
+
+# Simulation/generated helper files
+xsim.dir/
+xcelium_lib/
+*.bin
+*.tmp
+
+# Keep key source/project definition files
+!*.xpr
+!*.xci
+!*.tcl
+!*.xdc
+!*.sv
+!*.v
+!*.vh
+!*.vhd
+!*.vhdl

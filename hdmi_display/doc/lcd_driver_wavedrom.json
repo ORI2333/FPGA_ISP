@@ -1,0 +1,42 @@
+{
+  "signal": [
+    {"name": "clk", "wave":   "P..|.|.|..|....."},
+    {"name": "lcd_clk", "wave":   "P..|.|.|..|....."},
+    {"name": "h_cnt", "wave": "x22|2|.2|.2.|.2xxx", 
+      "data": [
+      "H_FRONT-1", "H_FRONT", "H_SYNC", "H_BACK", "H_DISPLAY"
+    ]},
+    {},
+    ["时序控制",
+      {"name": "lcd_hs", "wave": "0.....1...|.....x"},
+      {"name": "lcd_vs", "wave": "1.|......|....."}
+    ],
+    {},
+    ["消隐控制",
+      {"name": "lcd_blank", "wave": "0.....1...|.....x"}
+
+    ],
+    {},
+    ["数据请求",
+      {"name": "lcd_request", "wave": "0........1.|.....x"}
+    ],
+    {},
+    ["显示输出",
+      {"name": "lcd_en", "wave": "0.........1|.....x"},
+      {"name": "lcd_rgb", "wave": "0.........=====|..0..", "data": ["D0", "D1", "D2", "...", "Dn-1", "Dn"]}
+    ]
+  ],
+  "head": {
+    "text": "LCD Driver 水平扫描核心时序 (H-Timing Transition)",
+    "tick": 0
+  },
+  "edge": [
+    "b~>c 提前1拍请求数据",
+    "c~>f 数据到达并输出"
+  ],
+  "config": {
+    "hscale": 3,
+    "skin": "default"
+  }
+
+}

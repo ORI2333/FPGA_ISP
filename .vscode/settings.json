@@ -1,0 +1,6 @@
+{
+  "files.associations": {
+    "**/wavedrom.json": "jsonc"
+  },
+  "workbench.editor.openSideBySideDirection": "down"
+}

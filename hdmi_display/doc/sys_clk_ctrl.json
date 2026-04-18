@@ -1,0 +1,31 @@
+{
+  "signal": [
+    ["Power-on Delay",
+      { "name": "clk_in",     "wave": "p......................" },
+      { "name": "delay_cnt",  "wave": "x.==....=|....", "data": ["0", "counting", "SYS_DELAY_TOP-1"] },
+      { "name": "delay_done", "wave": "0........1|1111......." }
+    ],
+
+    ["PLL Startup",
+      { "name": "pll_rst",    "wave": "1........0|0000........" },
+      { "name": "clk_out",    "wave": "x.........|..p........." },
+      { "name": "locked",     "wave": "0..........|..1........" }
+    ],
+
+    ["Reset Synchronization",
+      { "name": "ext_rst_n",  "wave": "0..1.......|..........." },
+      { "name": "rst_nr1",    "wave": "x..........|..0.1......" },
+      { "name": "rst_nr2",    "wave": "x..........|..0..1....." },
+      { "name": "sys_rst_n",  "wave": "0..........|.....1....." }
+    ]
+  ],
+
+  "head": {
+    "text": "sys_clk_ctrl startup timing",
+    "tick": 0
+  },
+
+  "foot": {
+    "text": "delay_cnt middle cycles omitted; sequence: delay_done -> pll_rst release -> locked -> 2-cycle reset synchronization -> sys_rst_n"
+  }
+}
