@@ -7,13 +7,13 @@ FPGA ISP (Image Signal Processing) project repository.
 This repository is used to store FPGA-based ISP related design files, code, and documentation.
 
 ## 修订记录
-- Design and Implementation of HDMI Output Display Module
+### 0.1.0 (2024-06-01)
+Design and Implementation of HDMI Output Display Module
 
 
-## License
+## 说明手册
+### HDMI显示模块
+说明文档?：
+https://ori2333.github.io/blog/2026/04/18/hdmi_display%E8%AE%BE%E8%AE%A1%E6%89%8B%E5%86%8C/
 
-This repository is licensed under GNU Affero General Public License v3.0.
 
-- License: GNU AGPL-3.0
-- SPDX identifier: AGPL-3.0-only
-- Full text and terms: see [LICENSE](LICENSE)
