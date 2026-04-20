@@ -7,7 +7,10 @@ FPGA ISP (Image Signal Processing) project repository.
 This repository is used to store FPGA-based ISP related design files, code, and documentation.
 
 ## ÐÞ¶©¼ÇÂ¼
-### 0.1.0 (2024-06-01)
+### 0.1.1 (2026/04/20)
+- SC1336 Çý¶¯Ð´ºÃ£¬µ«ÉÐÎ´²âÊÔ
+
+### 0.1.0 (2026/04/18)
 Design and Implementation of HDMI Output Display Module
 
 

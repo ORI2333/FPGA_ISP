@@ -1,0 +1,40 @@
+{
+  "signal": [
+    ["I2C Clock Generate (delay_done = 1)",
+      //{ "name": "clk",             "wave": "p............................" },
+      { "name": "clk_cnt",         "wave": "x.========|========|=========", "data": ["0->N-1", "0->N-1", "0->N-1"] },
+      { "name": "i2c_transfer_en", "wave": "0.10......10......10......10." },
+      { "name": "i2c_ctrl_clk",    "wave": "0....1111....0000....1111...." },
+      { "name": "i2c_capture_en",  "wave": "0.....10.......10.......10...." }
+    ],
+
+    ["FSM (one write transaction)",
+      { "name": "current_state",   "wave": "=.=..========.=..========.=..========.=.=.", "data": ["IDLE", "WR_START", "WR_IDADDR[8b]", "WR_ACK1", "WR_REGADDR1[8b]", "WR_ACK2", "WR_REGADDR2[8b]", "WR_ACK3", "WR_REGDATA[8b]", "WR_ACK4", "WR_STOP", "IDLE"] },
+      { "name": "i2c_stream_cnt",  "wave": "x....=.......0....=.......0....=.......0...", "data": ["0->8", "0", "0->8", "0", "0->8", "0"] },
+      { "name": "i2c_wdata",       "wave": "x....=...........=...........=...........=..", "data": ["ID_ADDR", "REG_ADDR_H", "REG_ADDR_L", "REG_DATA"] },
+      { "name": "i2c_ack1/2/3/4",  "wave": "x.............=.........=.........=.........=", "data": ["ACK1", "ACK2", "ACK3", "ACK4"] },
+      { "name": "i2c_config_index","wave": "=..............................=.............", "data": ["k", "k+1"] }
+    ],
+
+    ["I/O Pin Behavior",
+      { "name": "bir_en",          "wave": "0.............1.0.........1.0.........1.0..." },
+      { "name": "i2c_sdat_oe",     "wave": "1.............0.1.........0.1.........0.1..." },
+      { "name": "i2c_sdat_o",      "wave": "1..0.=.=.=.=.=x.=.=.=.=.=x.=.=.=.=.=x.=.0.1" },
+      { "name": "i2c_sclk",        "wave": "1....0.1.0.1.0.1.0.1.0.1.0.1.0.1.0.1....1.." }
+    ]
+  ],
+
+  "head": {
+    "text": "i2c_timing_ctrl_reg16_dat8_wronly timing",
+    "tick": 0
+  },
+
+  "foot": {
+    "text": "transfer_en drives bit-step/state advance; capture_en samples ACK in SCL stable-high window; frame: START -> ID -> ACK -> REG_H -> ACK -> REG_L -> ACK -> DATA -> ACK -> STOP"
+  },
+
+    "config": {
+    "hscale": 4,
+    "skin": "default"
+  }
+}
