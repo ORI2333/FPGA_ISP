@@ -302,7 +302,11 @@ always @(posedge clk or negedge rst_n)
                             i2c_sdat_out <= 1'b0;
                         end
                     default: 
-                        next_state <= I2C_IDLE;  
+                        begin
+                            i2c_sdat_out   <= i2c_sdat_out;
+                            i2c_stream_cnt <= i2c_stream_cnt;
+                            i2c_wdata      <= i2c_wdata;
+                        end
                 endcase
             end
         else
