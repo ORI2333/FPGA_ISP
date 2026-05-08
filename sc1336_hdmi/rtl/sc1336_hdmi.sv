@@ -70,6 +70,11 @@ module sc1336_hdmi(
     output               [   7: 0]      lcd_green                  ,
     output               [   7: 0]      lcd_blue                    
 );
+
+    parameter              PIXEL_DATA_WIDTH            = 8                    ;
+    parameter              IMAGE_HSIZE                 = 1280                 ;
+    parameter              IMAGE_YSIZE                 = 720                  ;
+
 // ----------------------------------------------------------------------------------------
 // clock control
 wire                           clk_ctrl                   ;// 100MHz
@@ -100,9 +105,9 @@ sys_clk_ctrl#(
     .sys_rst_n                          (sys_rst_n                 ) 
 );
 
-assign cmos_xclk = clk_cmos;
-assign cmos_sdat_in = cmos_sdat;
-assign cmos_sdat = (cmos_sdat_oe && (cmos_sdat_out == 1'b0)) ? 1'b0 : 1'bz;
+assign     cmos_xclk    = clk_cmos     ;
+assign     cmos_sdat_in = cmos_sdat    ;
+assign     cmos_sdat    = (cmos_sdat_oe && (cmos_sdat_out == 1'b0)) ? 1'b0 : 1'bz;
 
 
 
@@ -142,9 +147,106 @@ i2c_sc1336_config u_i2c_sc1336_config(
 );
                                                             
 
+wire                           XYCrop_frame_vsync         ;
+wire                           XYCrop_frame_href          ;
+wire                           XYCrop_frame_de            ;
+wire            [   7: 0]      XYCrop_frame_data          ;
+Sensor_Image_XYCrop#(
+    .IMAGE_HSIZE_SOURCE                 (IMAGE_HSIZE               ),
+    .IMAGE_VSIZE_SOURCE                 (IMAGE_YSIZE               ),
+    .IMAGE_HSIZE_TARGET                 (IMAGE_HSIZE               ),
+    .IMAGE_YSIZE_TARGET                 (IMAGE_YSIZE               ),
+    .PIXEL_DATA_WIDTH                   (PIXEL_DATA_WIDTH          ) 
+)
+ u_Sensor_Image_XYCrop(
+//globel clock
+    .clk                                (cmos_pclk                 ),// image pixel clock
+    .rst_n                              (sys_rst_n                 ),
+//CMOS Sensor interface
+    .image_in_vsync                     (cmos_vsync                ),// H : Data Valid; L : Frame Sync(Set it by register)
+    .image_in_href                      (cmos_href                 ),// H : Data vaild, L : Line Sync
+    .image_in_de                        (cmos_de                   ),// H : Data Enable, L : Line Sync
+    .image_in_data                      (cmos_data                 ),// 8 bits cmos data input
+    .image_out_vsync                    (XYCrop_frame_vsync        ),// H : Data Valid; L : Frame Sync(Set it by register)
+    .image_out_href                     (XYCrop_frame_href         ),// H : Data vaild, L : Line Sync
+    .image_out_de                       (XYCrop_frame_de           ),// H : Data Enable, L : Line Sync
+    .image_out_data                     (XYCrop_frame_data         ) // 8 bits cmos data input
+);
 
 
 
+axi4_ctrl#(
+    .ID_LEN                             (8                         ),
+    .ADDR_LEN                           (32                        ),
+    .DATA_LEN                           (256                       ),
+    .DATA_SIZE                          (4                         ),
+    .STRB_LEN                           (                          ),
+    .BURST_LEN                          (16                        ),
+    .ADDR_INC                           (                          ),
+    .W_WIDTH                            (32                        ),
+    .R_WIDTH                            (8                         ),
+    .BUF_SIZE                           (22                        ),
+    .RD_END_ADDR                        (1280*720                  ),
+    .BASE_ADDR                          (32'h0000_0000             ) 
+)
+ u_axi4_ctrl(
+    .axi4_clk                           (                          ),// AXI4 clock signal
+    .axi4_rst_n                         (                          ),// Active low reset signal for AXI4 interface
+// AW - Write Address Channel
+    .axi4_awid                          (                          ),
+    .axi4_awaddr                        (                          ),// 32 or 64 bits address
+    .axi4_awlen                         (                          ),// Burst length (number of data beats - 1)
+    .axi4_awsize                        (                          ),// Burst size (number of bytes per beat, encoded as log2(bytes))
+    .axi4_awburst                       (                          ),// Burst type
+    .axi4_awlock                        (                          ),// Lock type
+    .axi4_awcache                       (                          ),// Cache type
+    .axi4_awprot                        (                          ),// Protection type
+    .axi4_awqos                         (                          ),// Quality of Service
+    .axi4_awregion                      (                          ),// Region identifier
+    .axi4_awvalid                       (                          ),// Write address valid signal
+    .axi4_awready                       (                          ),// Write address ready signal
+// W - Write Data Channel
+    .axi4_wdata                         (                          ),// Write data bus
+    .axi4_wstrb                         (                          ),// Write strobes (indicates which bytes of the data bus are valid)
+    .axi4_wlast                         (                          ),// Write last signal (indicates the last data beat in a burst)
+    .axi4_wvalid                        (                          ),// Write data valid signal
+    .axi4_wready                        (                          ),// Write data ready signal
+// B - Write Response Channel
+    .axi4_bid                           (                          ),// Write response ID (should match the AWID of the corresponding write address)
+    .axi4_bresp                         (                          ),// Write response (indicates the status of the write transaction)
+    .axi4_bvalid                        (                          ),// Write response valid signal
+    .axi4_bready                        (                          ),// Write response ready signal
+// AR - Read Address Channel
+    .axi4_arid                          (                          ),// Read address ID (used to identify different read transactions)
+    .axi4_araddr                        (                          ),// 32 or 64 bits address
+    .axi4_arlen                         (                          ),// Burst length (number of data beats - 1)
+    .axi4_arsize                        (                          ),// Burst size (number of bytes per beat, encoded as log2(bytes))
+    .axi4_arburst                       (                          ),// Burst type
+    .axi4_arlock                        (                          ),// Lock type
+    .axi4_arcache                       (                          ),// Cache type
+    .axi4_arprot                        (                          ),// Protection type
+    .axi4_arqos                         (                          ),// Quality of Service
+    .axi4_arregion                      (                          ),// Region identifier
+    .axi4_arvalid                       (                          ),// Read address valid signal
+    .axi4_arready                       (                          ),// Read address ready signal
+// R - Read Data Channel
+    .axi4_rid                           (                          ),// Read response ID (should match the ARID of the corresponding read address)
+    .axi4_rdata                         (                          ),// Read data from slave (payload of read response)
+    .axi4_rresp                         (                          ),// Read response (indicates the status of the read transaction)
+    .axi4_rlast                         (                          ),// Last flag (indicates the last data beat in a burst)
+    .axi4_rvalid                        (                          ),// Read data valid signal
+    .axi4_rready                        (                          ),// Read data ready signal
+// Write Frame Interface
+    .wframe_pclk                        (                          ),// Write frame pixel clock
+    .wframe_vsync                       (                          ),// Write frame vertical sync signal
+    .wframe_data_en                     (                          ),// Write frame data enable signal
+    .wframe_data                        (                          ),// Write frame pixel data
+// Read Frame Interface
+    .rframe_pclk                        (                          ),// Read frame pixel clock
+    .rframe_vsync                       (                          ),// Read frame vertical sync signal
+    .rframe_data_en                     (                          ),// Read frame data enable signal
+    .rframe_data                        (                          ) // Read frame pixel data output
+);
 
 
 //****************************************************************************************//

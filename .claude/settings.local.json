@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh repo *)",
+      "WebFetch(domain:github.com)",
+      "mcp__github-server__search_repositories",
+      "Bash(git config *)",
+      "Bash(git remote *)",
+      "WebSearch",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:marketplace.visualstudio.com)",
+      "Bash(code --list-extensions)",
+      "Bash(ls ~/.vscode/extensions/ 2>/dev/null | grep -i verilog)",
+      "Read(//c/Users/ORI2333/.vscode/extensions/**)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); props=d.get\\('contributes',{}\\).get\\('configuration',{}\\).get\\('properties',{}\\); [print\\(k,':',v.get\\('default',''\\),'—',v.get\\('description',''\\)\\) for k,v in props.items\\(\\)]\")",
+      "Read(//c/Users/ORI2333/.config/Code/User/**)",
+      "Read(//c/Users/ORI2333/AppData/Roaming/Code/User/**)",
+      "Bash(cp ~/AppData/Roaming/Code/User/snippets/verilog.json ~/AppData/Roaming/Code/User/snippets/systemverilog.json)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\ORI2333\\AppData\\Roaming\\Code\\User\\snippets"
+    ]
+  }
+}
