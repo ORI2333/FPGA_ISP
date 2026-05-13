@@ -1,27 +1,7 @@
-`timescale 1ns / 1ns
-//****************************************VSCODE PLUG-IN**********************************//
-//----------------------------------------------------------------------------------------
-// IDE :                   VSCODE
-// VSCODE plug-in version: Verilog-Hdl-Format-4.3.20260413
-// VSCODE plug-in author : Jiang Percy
-//----------------------------------------------------------------------------------------
-//****************************************Copyright (c)***********************************//
-// Copyright(C)            ORI2333
-// All rights reserved
-// File name:
-// Last modified Date:     2026/04/20 18:40:09
-// Last Version:           V1.0
-// Descriptions:
-//----------------------------------------------------------------------------------------
-// Created by:             ORI2333
-// Created date:           2026/04/20 18:40:09
-// mail      :             ori2333.zh@gmail.com
-// Version:                V1.0
-// TEXT NAME:              i2c_sc1336_config.v
-// PATH:                   E:\E_EngineeringWarehouse\FPGA_ISP\FPGA_ISP\sc1336_hdmi\rtl\i2c_sc1336_config.v
-// Descriptions:
-//
-//----------------------------------------------------------------------------------------
+	imescale 1ns / 1ns
+//****************************************************************************************//
+// Configuration Data LUT for SC1336 Sensor
+// Auto-generated mapped translated English annotations
 //****************************************************************************************//
 
 module i2c_sc1336_config(
@@ -31,32 +11,35 @@ output               [   7: 0]      LUT_SIZE
 );
 assign     LUT_SIZE     = 1'b1 + 8'd183;
 
-//-----------------------------------------------------------------
-/////////////////////   Config Data LUT   //////////////////////////
 always@(*)begin
         case(LUT_INDEX)
-            // --- 系统初始化与复位 ---
-            0:    LUT_DATA = {16'h0103,8'h01};// 软复位使能：Bit[0]=1，触发软复位 [cite: 276]
-            1:    LUT_DATA = {16'h0100,8'h00};// 软睡眠模式：Bit[0]=0，使能睡眠模式，便于后续安全配置 [cite: 266]
-            
-            // --- 原厂隐藏调优寄存器 (内部模拟/数字底层配置) ---
+
+            // --- System Init & Reset ---
+
+            0:    LUT_DATA = {16'h0103,8'h01}; // Software Reset (Bit[0]=1)
+            1:    LUT_DATA = {16'h0100,8'h00}; // Enter Sleep Mode (Bit[0]=0)
+
+            // --- Vendor Specific Init (Block 1) ---
+
             2:    LUT_DATA = {16'h36e9,8'h80};
             3:    LUT_DATA = {16'h37f9,8'h80};
             4:    LUT_DATA = {16'h3001,8'hff};
             5:    LUT_DATA = {16'h3002,8'hf0};
 
-            // --- 接口与时钟配置 ---
-            6:    LUT_DATA = {16'h300a,8'h24};// FSYNC 输出控制：配置 FSYNC pad 的输入/输出状态 [cite: 589
-            7:    LUT_DATA = {16'h3018,8'h0f};// MIPI 调整寄存器：配置 MIPI lane 数量及模式 [cite: 501]
+            // --- Interface Control (MIPI/DVP) ---
+
+            6:    LUT_DATA = {16'h300a,8'h24}; // FSYNC pad output control
+            7:    LUT_DATA = {16'h3018,8'h0f};
             8:    LUT_DATA = {16'h301a,8'hf8};
             9:    LUT_DATA = {16'h301c,8'h94};
             10:   LUT_DATA = {16'h301f,8'h03};
             11:   LUT_DATA = {16'h3030,8'h01};
-            12:   LUT_DATA = {16'h303f,8'h81};// MIPI 时钟设置：选择 MIPI pclk 或 DVP pclk [cite: 501]
+            12:   LUT_DATA = {16'h303f,8'h81}; // Select DVP PCLK (bypass MIPI)
             13:   LUT_DATA = {16'h3248,8'h04};
             14:   LUT_DATA = {16'h3249,8'h0b};
 
-            // --- 原厂隐藏调优寄存器 (批量的底层配置) ---
+            // --- Vendor Specific Init (Block 2) ---
+
             15:   LUT_DATA = {16'h3301,8'h03};
             16:   LUT_DATA = {16'h3302,8'h10};
             17:   LUT_DATA = {16'h3303,8'h10};
@@ -116,8 +99,9 @@ always@(*)begin
             71:   LUT_DATA = {16'h34ab,8'h70};
             72:   LUT_DATA = {16'h34ac,8'h00};
             73:   LUT_DATA = {16'h34ad,8'h80};
-           
-            // --- 驱动与延迟调整 ---
+
+            // --- Analog / Driving Control ---
+
             74:   LUT_DATA = {16'h3630,8'hc0};
             75:   LUT_DATA = {16'h3631,8'h84};
             76:   LUT_DATA = {16'h3632,8'h78};
@@ -126,7 +110,7 @@ always@(*)begin
             79:   LUT_DATA = {16'h363a,8'h88};
             80:   LUT_DATA = {16'h363b,8'h03};
             81:   LUT_DATA = {16'h363c,8'h08};
-            82:   LUT_DATA = {16'h3641,8'h3a};// PAD 驱动能力：调节接口 PAD 的驱动电流能力 [cite: 386]
+            82:   LUT_DATA = {16'h3641,8'h3a};
             83:   LUT_DATA = {16'h3670,8'h0f};
             84:   LUT_DATA = {16'h3674,8'hb0};
             85:   LUT_DATA = {16'h3675,8'hc0};
@@ -170,7 +154,7 @@ always@(*)begin
             123:  LUT_DATA = {16'h37fc,8'h01};
             124:  LUT_DATA = {16'h37fd,8'h07};
             125:  LUT_DATA = {16'h3900,8'h0d};
-            126:  LUT_DATA = {16'h3902,8'hdf};// 包含 BLC (黑电平补偿) 自动模式使能等控制 [cite: 770]
+            126:  LUT_DATA = {16'h3902,8'hdf}; // BLC mode select
             127:  LUT_DATA = {16'h3905,8'hb8};
             128:  LUT_DATA = {16'h3908,8'h41};
             129:  LUT_DATA = {16'h391b,8'h81};
@@ -180,21 +164,23 @@ always@(*)begin
             133:  LUT_DATA = {16'h3934,8'hd9};
             134:  LUT_DATA = {16'h3940,8'h70};
             135:  LUT_DATA = {16'h3941,8'h00};
-            136:  LUT_DATA = {16'h3000,8'hff};// MIPI Lane 0 延时控制 [cite: 501]
+            136:  LUT_DATA = {16'h3000,8'hff};
             137:  LUT_DATA = {16'h3942,8'h01};
             138:  LUT_DATA = {16'h3943,8'hdc};
             139:  LUT_DATA = {16'h3952,8'h02};
             140:  LUT_DATA = {16'h3953,8'h0f};
-            
-            // --- 曝光与增益控制 (AEC/AGC) ---
-            141:  LUT_DATA = {16'h3e01,8'h5d};// 曝光时间寄存器 [7:0] [cite: 623]
-            142:  LUT_DATA = {16'h3e02,8'h80};// 曝光时间寄存器 [7:4] [cite: 623]
-            143:  LUT_DATA = {16'h3e08,8'h1f};// 模拟增益 (Analog Gain) 控制寄存器，优先调节以获得更好的信噪比 [cite: 637, 642]
+
+            // --- AEC / AGC (Exposure & Gain) ---
+
+            141:  LUT_DATA = {16'h3e01,8'h5d}; // Exposure Time [7:0]
+            142:  LUT_DATA = {16'h3e02,8'h80}; // Exposure Time [15:8]
+            143:  LUT_DATA = {16'h3e08,8'h1f}; // Analog Gain Control
             144:  LUT_DATA = {16'h3e1b,8'h14};
             145:  LUT_DATA = {16'h4509,8'h1c};
-            146:  LUT_DATA = {16'h4603,8'h09};// MIPI 数据使能：控制 MIPI read [cite: 501]
-            
-            // --- 原厂隐藏调优寄存器 (5axx 通常为 ISP 处理模块参数) ---
+            146:  LUT_DATA = {16'h4603,8'h09}; // MIPI/DVP data route
+
+            // --- Vendor Specific Init (Block 3) ---
+
             147:  LUT_DATA = {16'h481f,8'h01};
             148:  LUT_DATA = {16'h4827,8'h02};
             149:  LUT_DATA = {16'h4831,8'h02};
@@ -229,11 +215,11 @@ always@(*)begin
             178:  LUT_DATA = {16'h5aff,8'h28};
             179:  LUT_DATA = {16'h36e9,8'h20};
             180:  LUT_DATA = {16'h37f9,8'h27};
-            
-            // --- 最终输出格式与使能 ---
-            181:  LUT_DATA = {16'h3d08,8'h03};// DVP 信号极性：控制 LREF, FSYNC, PCLK 的极性 [cite: 386]
-            182:  LUT_DATA = {16'h3640,8'h02};// PCLK 延迟：控制像素时钟延时，步进 2ns [cite: 391]
-            183:  LUT_DATA = {16'h0100,8'h01};// 唤醒传感器：Bit[0]=1，解除睡眠模式，开始图像输出 [cite: 266]
+
+            181:  LUT_DATA = {16'h3d08,8'h03}; // System/Image path control
+            // --- Initialization End & Stream Start ---
+            182:  LUT_DATA = {16'h3640,8'h02}; // PCLK delay (+2ns)
+            183:  LUT_DATA = {16'h0100,8'h01}; // Wake Up & Stream Start (Bit[0]=1)
             default:LUT_DATA    =   {16'h0000, 8'h00};
         endcase
     end

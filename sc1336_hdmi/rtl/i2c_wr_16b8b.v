@@ -173,7 +173,7 @@ always @( * )
         end
         I2C_WR_ACK1:
         begin
-            if (i2c_transfer_en && i2c_stream_cnt == 4'd8)
+            if (i2c_transfer_en)
                 next_state = I2C_WR_REGADDR1;
             else
                 next_state = I2C_WR_ACK1;
@@ -187,7 +187,7 @@ always @( * )
         end
         I2C_WR_ACK2:
         begin
-            if (i2c_transfer_en && i2c_stream_cnt == 4'd8)
+            if (i2c_transfer_en)
                 next_state = I2C_WR_REGADDR2;
             else
                 next_state = I2C_WR_ACK2;
@@ -201,7 +201,7 @@ always @( * )
         end
         I2C_WR_ACK3:
         begin
-            if (i2c_transfer_en && i2c_stream_cnt == 4'd8)
+            if (i2c_transfer_en)
                 next_state = I2C_WR_REGDATA;
             else
                 next_state = I2C_WR_ACK3;
@@ -215,7 +215,7 @@ always @( * )
         end
         I2C_WR_ACK4:
         begin
-            if (i2c_transfer_en && i2c_stream_cnt == 4'd8)
+            if (i2c_transfer_en)
                 next_state = I2C_WR_STOP;
             else
                 next_state = I2C_WR_ACK4;
@@ -261,7 +261,7 @@ always @(posedge clk or negedge rst_n)
                     I2C_WR_IDADDR:
                         begin
                             i2c_stream_cnt <= i2c_stream_cnt + 1'b1;
-                            i2c_wdata      <= i2c_wdata[3'd7 - i2c_stream_cnt];
+                            i2c_sdat_out <= i2c_wdata[3'd7 - i2c_stream_cnt];
                         end
                     I2C_WR_ACK1:  
                         begin
