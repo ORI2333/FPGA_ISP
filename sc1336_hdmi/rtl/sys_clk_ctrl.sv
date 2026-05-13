@@ -36,11 +36,14 @@ module sys_clk_ctrl#(
     output wire                         clk_ctrl                   ,// control domain clock (e.g. 100MHz)
     output wire                         clk_video                  ,// video pixel clock (e.g. 74.25MHz)
     output wire                         clk_cmos                   ,// sensor xclk source (e.g. 24/27MHz)
-    output wire                         clk_ddr_ref                ,// DDR reference clock (e.g. 200MHz)
+    output wire                         clk_ddr_ref                ,// DDR system clock 250MHz
+    output wire                         clk_ddr_ref_200m           ,// IDELAYCTRL reference clock 200MHz
     output wire                         clk_ila                    ,// ILA debug clock
     output wire                         clk_spare                  ,// spare clock output
     // Single reset output (active low, synchronous to clk_ctrl)
-    output wire                         sys_rst_n
+    output wire                         sys_rst_n                  ,
+    // MIG system reset (ACTIVE LOW — see MIG .prj SysResetPolarity)
+    output wire                         mig_sys_rst
 );
 
     // ============================================================
@@ -65,7 +68,7 @@ module sys_clk_ctrl#(
     //   Use 3 independent Clocking Wizard IPs to reduce output coupling:
     //   1) sys_clk_ctrl_cmos : 100MHz(ctrl), 24/27MHz(cmos), spare
     //   2) sys_clk_video     : 74.25MHz(video)
-    //   3) sys_clk_ddr_ref   : 200MHz(ddr ref)
+    //   3) sys_clk_ddr_ref   : 250MHz(sys_clk_i) + 200MHz(clk_ref_i)
     wire                            pll_rst                    ;
     wire                            lock_ctrl                  ;
     wire                            lock_video                 ;
@@ -93,7 +96,8 @@ sys_clk_ddr_ref u_sys_clk_ddr_ref(
     .clk_in1                            (clk_in                    ),
     .reset                              (pll_rst                   ),
     .locked                             (lock_ddr                  ),
-    .clk_out1                           (clk_ddr_ref               )
+    .clk_out1                           (clk_ddr_ref               ),// 250MHz
+    .clk_out2                           (clk_ddr_ref_200m          ) // 200MHz
 );
 
     // ILA clock reuses control domain clock by default
@@ -122,5 +126,11 @@ sys_clk_ddr_ref u_sys_clk_ddr_ref(
     end
 
     assign     sys_rst_n    = rstn_r2;
+
+    // ============================================================
+    // 4) MIG system reset: ACTIVE LOW (matches MIG .prj SysResetPolarity)
+    //    sys_rst_n is active-low and already 2-stage sync'd in clk_ctrl domain.
+    //    Reference design on same board connects directly without extra sync.
+    assign mig_sys_rst = sys_rst_n;
 
 endmodule

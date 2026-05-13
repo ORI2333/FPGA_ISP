@@ -1,10 +1,4 @@
 `timescale 1ns / 1ps
-//****************************************VSCODE PLUG-IN**********************************//
-//----------------------------------------------------------------------------------------
-// IDE :                   VSCODE     
-// VSCODE plug-in version: Verilog-Hdl-Format-4.3.20260413
-// VSCODE plug-in author : Jiang Percy
-//----------------------------------------------------------------------------------------
 //****************************************Copyright (c)***********************************//
 // Copyright(C)            ORI2333
 // All rights reserved     
@@ -28,11 +22,11 @@ module axi4_ctrl #(
     parameter              ID_LEN                      = 8                    ,
     parameter              ADDR_LEN                    = 32                   ,
     parameter              DATA_LEN                    = 256                  ,
-    parameter              DATA_SIZE                   = 4                    ,
+    parameter              DATA_SIZE                   = 5                    ,// 2^5=32B = 256-bit
     parameter              STRB_LEN                    = DATA_LEN/8           ,
     parameter              BURST_LEN                   = 16                   ,
     parameter              ADDR_INC                    = BURST_LEN * STRB_LEN ,// Address increment for each burst (number of bytes per burst)
-    parameter              W_WIDTH                     = 32                   ,
+    parameter              W_WIDTH                     = 8                    ,
     parameter              R_WIDTH                     = 8                    ,
     parameter              BUF_SIZE                    = 22                   , //Allocate 2^22 bytes (4MB) by default. The module takes 4*4MB by default. 
     parameter              RD_END_ADDR                 = 1280*720             ,
@@ -102,8 +96,11 @@ module axi4_ctrl #(
     input  wire                         rframe_pclk                ,// Read frame pixel clock
     input  wire                         rframe_vsync               ,// Read frame vertical sync signal
     input  wire                         rframe_data_en             ,// Read frame data enable signal
-    output wire          [R_WIDTH-1: 0] rframe_data                 // Read frame pixel data output                 
+    output wire          [R_WIDTH-1: 0] rframe_data                ,// Read frame pixel data output
 
+    // Debug port for ILA
+    output wire          [  31: 0]      dbg_wr                     ,// write channel internal state
+    output wire          [  15: 0]      dbg_rd                      // read channel internal state
 );
 // initialize control signals
 initial begin
@@ -147,6 +144,7 @@ wire            [   1: 0]      w_wframe_index_next        ;
 reg             [   1: 0]      r_wframe_index_last        ;
 reg                            r_wframe_inc               ;
 reg                            r_rframe_inc               ;
+reg                            wframe_done                ;// set when a frame write completes
 
 assign     w_wframe_index_r1= rc_wframe_index + 2'd1;
 assign  w_wframe_index_next = (w_wframe_index_r1 == rc_rframe_index)
@@ -156,28 +154,29 @@ assign  w_wframe_index_next = (w_wframe_index_r1 == rc_rframe_index)
 always @(posedge axi4_clk) begin
     if(!axi4_rst_n)begin
         rc_wframe_index <= 2'd0;
-        rc_rframe_index <= 2'd0;
+        rc_rframe_index <= 2'd2;        // start read 2 buffers away from write
         r_wframe_index_last <= 2'd0;
-        r_wframe_inc <= 1'b0;
-        r_rframe_inc <= 1'b0;
+        wframe_done       <= 1'b0;
     end else begin
             rc_wframe_index <= rc_wframe_index;
             rc_rframe_index <= rc_rframe_index;
 
         case ({r_rframe_inc,r_wframe_inc})
             2'b01: begin
-                // write increment only when write frame data is valid
+                // write completes a frame
                 rc_wframe_index <= w_wframe_index_next;
                 r_wframe_index_last <= rc_wframe_index;
+                wframe_done <= 1'b1;
             end
             2'b10: begin
-                // read increment only when read frame data is valid
-                rc_rframe_index <= r_wframe_index_last;
+                // only advance read if write has completed at least one frame
+                if (wframe_done)
+                    rc_rframe_index <= r_wframe_index_last;
             end
             2'b11: begin
-                // if both read and write increments are valid, prioritize write increment to avoid read/write collision
                 rc_wframe_index <= w_wframe_index_next;
                 rc_rframe_index <= rc_wframe_index;
+                wframe_done <= 1'b1;
             end
             default: begin
                 rc_wframe_index <= rc_wframe_index;
@@ -215,7 +214,7 @@ reg             [   7: 0]      rc_burst                   ;
 reg             [   1: 0]      r_wframe_sync              ;
 reg                            r_weof_pending             ;
 
-always @(posedge axi4_clk or posedge axi4_rst_n) begin
+always @(posedge axi4_clk or negedge axi4_rst_n) begin
     if(!axi4_rst_n) begin
         state_write <= WS_W_IDLE;
         rc_w_ptr <= {BUF_SIZE{1'b0}};
@@ -239,65 +238,57 @@ always @(posedge axi4_clk or posedge axi4_rst_n) begin
             r_weof_pending <= r_weof_pending;                       // Hold EOF pending flag until it's cleared in the state machine
         end
 
-        if(axi4_awaddr) begin
-            axi4_awvalid <= 0;
-        end begin
+        if(axi4_awvalid && axi4_awready) begin
+            axi4_awvalid <= 1'b0;
+        end else begin
             axi4_awvalid <= axi4_awvalid;
         end
 
         case (state_write)
-            WS_W_IDLE: begin
+            WS_W_IDLE: begin                                       // 2'b00
                 rc_burst <= 8'd0;
-                r_w_rst_n <= 1'b1;                                  // Release reset for write pointer and burst counter
+                r_w_rst_n <= 1'b1;
 
                 if(~w_wfifo_pempty || (r_weof_pending && ~w_wfifo_empty)) begin
                     axi4_awvalid <= 1'b1;
                     axi4_wvalid <= 1'b1;
                     state_write <= WS_W_WDATA;
-                end else if(r_weof_pending)begin
+                end else if(r_weof_pending) begin
                     r_w_rst_n <= 1'b0;
                     r_wframe_inc <= 1'b1;
                     state_write <= WS_W_EOF;
-                end else begin
-                    // nothing
                 end
             end
-            WS_W_EOF: begin
-                // wait for some cycles   2 clk
-                r_weof_pending <= 1'b0;
-                rc_w_ptr <= 1'b0;
-                rc_w_eof <= 'd0;
 
-                if(rc_w_eof) begin
-                    state_write <= WS_W_IDLE;
-                end else begin
-                    state_write <= state_write;
-                end
-            end
-            WS_W_WDATA: begin
+            WS_W_WDATA: begin                                      // 2'b01
                 rc_burst <= rc_burst + axi4_wready;
 
-                // on last transfer of the burst, set WLAST and prepare for next burst
                 if(axi4_wlast && axi4_wready) begin
                     axi4_wvalid <= 1'b0;
                     state_write <= WS_W_WINC;
-                end else begin
-                    // nothing
                 end
             end
-            WS_W_EOF: begin
-                rc_w_ptr <= rc_w_ptr + ADDR_INC;                    // Increment write pointer by burst size for next frame
+
+            WS_W_WINC: begin                                       // 2'b10
+                rc_w_ptr <= rc_w_ptr + ADDR_INC;
                 state_write <= WS_W_IDLE;
             end
+
+            WS_W_EOF: begin                                        // 2'b11
+                r_weof_pending <= 1'b0;
+                rc_w_ptr <= 1'b0;
+                state_write <= WS_W_IDLE;
+            end
+
             default: begin
-                // no
+                state_write <= WS_W_IDLE;
             end
         endcase
     end
 end
 
 // writer address generation
-assign     awaddr       = BASE_ADDR + {rc_wframe_index, rc_w_ptr};
+assign     axi4_awaddr   = BASE_ADDR + {rc_wframe_index, rc_w_ptr};
 assign     axi4_wdata   = w_wfifo_rdata;
 assign     axi4_wlast   = (rc_burst >= (BURST_LEN - 1)) ? 1'b1 : 1'b0;
 
@@ -314,10 +305,10 @@ reg             [WFIFO_CNT_SIZE-1: 0]rc_wfifo_we                ;// Counter to t
 
 // Write frame data collection and burst formation
 always @(posedge wframe_pclk) begin
-    if(wframe_data_en) begin
+    if(!r_w_rst_n) begin
+        r_wfifo_wdata <= {DATA_LEN{1'b0}};       // flush shift register at frame end
+    end else if(wframe_data_en) begin
         r_wfifo_wdata <= w_wfifo_wdata;
-    end else begin
-        r_wfifo_wdata <= r_wfifo_wdata;
     end
 end
 
@@ -330,7 +321,7 @@ always @(posedge wframe_pclk) begin
     end
 end
 
-// Òì²½FIFOÊµÀý»¯
+
 // Write side: Pixel clock domain; data is written after concatenating to a full 256-bit width.
 // Read side: AXI clock domain, reads on demand
 W0_FIFO_256 u_W0_FIFO_256(
@@ -392,9 +383,9 @@ always @(posedge rframe_pclk) begin
     end
 end
 
-// final reset signal for read fifo, active low
-wire                           w_rfifo_rst_n              ;
-assign     w_rfifo_rst_n= (~axi4_rst_n) || (~rfifo_rst_n);
+// final reset signal for read fifo, active high
+wire                           w_rfifo_rst                ;
+assign     w_rfifo_rst = (~axi4_rst_n) || (~rfifo_rst_n);
 
 // read fifo instance
 reg                            rfifo_wenb                 ;// Write enable for read FIFO
@@ -410,77 +401,76 @@ wire            [ 255: 0]      w_rframe_data_gen          ;// Generated read fra
 
 // Read frame data generation logic
 R0_FIFO_256 u_R0_FIFO_256 (
-    .rst                                (~w_rfifo_rst_n            ),// input wire rst
-    .wr_clk                             (rframe_pclk               ),// input wire wr_clk
-    .wr_en                              (rfifo_wenb                ),// input wire wr_en
-    .din                                (w_rframe_data_gen         ),// input wire [255 : 0] din
+    .rst                                (w_rfifo_rst              ),// input wire rst (active high)
+    .wr_clk                             (axi4_clk                  ),// AXI clock domain (write side)
+    .wr_en                              (rfifo_wenb                ),// write enable from AXI read
+    .din                                (rfifo_wdata               ),// AXI read data GOES IN
     .full                               (                          ),// output wire full
     .prog_full                          (rfifo_wfull               ),// output wire prog_full
 
-    .rd_clk                             (rframe_pclk               ),// input wire rd_clk
-    .rd_en                              (w_rframe_data_en_gen      ),// input wire rd_en
-    .dout                               (w_rframe_data_gen         ),// output wire [255 : 0] dout
+    .rd_clk                             (rframe_pclk               ),// pixel clock domain (read side)
+    .rd_en                              (w_rframe_data_en_gen      ),// read enable from unpacker
+    .dout                               (w_rframe_data_gen         ),// 256-bit data OUT to unpacker
     .empty                              (w_rfifo_empty             ),// output wire empty
     .prog_empty                         (w_rfifo_aempty            ) // output wire prog_empty
 );
 
-// Write logic for read FIFO (writing data from AXI read channel into the FIFO)
-reg                            r_rfifo_rst_n            =0;
+// Sync R0_FIFO reset to axi4_clk domain (active high, matches reference)
+reg                            r_rfifo_rst               ;
 always @(posedge axi4_clk) begin
-    if (!axi4_rst_n) begin
-        r_rfifo_rst_n <= 1'b1;
-    end else begin
-        r_rfifo_rst_n <= w_rfifo_rst_n;                             // Active low reset for read FIFO
-    end
+    r_rfifo_rst <= w_rfifo_rst;
 end
 
-// Synchronize the read FIFO reset signal to the read frame clock domain
-reg                            r_rfifo_rst_rclk_n       =0;
+// Sync R0_FIFO reset to rframe_pclk domain (active high)
+reg                            r_rfifo_rst_rclk          ;
 always @(posedge rframe_pclk) begin
-    r_rfifo_rst_rclk_n <= w_rfifo_rst_n;
+    r_rfifo_rst_rclk <= w_rfifo_rst;
 end
 
-// Write enable logic for read FIFO: write data into the FIFO when AXI read data is valid and the FIFO is not full
-    localparam             RFIFO_CNT_SIZE              = (R_WIDTH == 8) ? 5 : (R_WIDTH == 16) ? 4 : (R_WIDTH == 32) ? 3 : 2; // Calculate the number of bits needed for the counter based on R_WIDTH
-reg             [RFIFO_CNT_SIZE-1: 0]rc_rfifo_rd                ;
-always @(posedge rframe_pclk or negedge r_rfifo_rst_rclk_n) begin
-    if (!r_rfifo_rst_rclk_n) begin
+// Read-side unpack counter (reset by FIFO reset, counts on data enable)
+localparam             RFIFO_CNT_SIZE = (R_WIDTH == 8) ? 5 : ((R_WIDTH == 16) ? 4 : ((R_WIDTH == 32) ? 3 : 2));
+reg             [RFIFO_CNT_SIZE-1: 0]rc_rfifo_rd;
+
+always @(posedge rframe_pclk or posedge r_rfifo_rst_rclk) begin
+    if (r_rfifo_rst_rclk) begin
         rc_rfifo_rd <= 'd0;
-    end else begin
-        rc_rfifo_rd <= rc_rfifo_rd + rframe_data_en;                // Increment read counter on each data enable signal
-    end
-end
-
-assign     w_rframe_data_en_gen= rframe_data_en && (rc_rfifo_rd == 0);// Generate data enable signal for read frame on the first beat of each burst
-
-reg             [ 255: 0]      r_rframe_data_gen        =256'b0;
-always @(posedge rframe_pclk) begin
-    if(w_rframe_data_en_gen) begin
-        r_rframe_data_gen <= w_rframe_data_gen;                     // Capture the data from the FIFO when the data enable signal is generated
     end else if (rframe_data_en) begin
-        r_rframe_data_gen <= r_rframe_data_gen >> R_WIDTH;          // Shift the data for the next beat in the burst
+        rc_rfifo_rd <= rc_rfifo_rd + 1'b1;
     end
 end
-// Output the generated read frame data to the read frame interface
-assign     rframe_data  = r_rframe_data_gen;
 
-// reset busy delay logic for read FIFO: after reset is released, the FIFO may still be busy for a few cycles, so we use a shift register to delay the reset busy signal and ensure that we don't start reading from the FIFO until it's ready
-reg             [  15: 0]      rfifo_wr_rst_busy_dly    ='d0;
-always @(posedge axi4_clk or negedge axi4_rst_n) begin
-    if (!axi4_rst_n) begin
+assign w_rframe_data_en_gen = rframe_data_en && (rc_rfifo_rd == 0) && !w_rfifo_empty;
+
+// Data unpack: load 256-bit word from FIFO, shift out 8 bits at a time.
+// Requires R0_FIFO to be FWFT (First-Word Fall-Through) mode.
+// If FIFO is standard mode, reconfigure the IP to FWFT.
+reg             [ 255: 0]      r_rframe_data_gen = 256'b0;
+always @(posedge rframe_pclk) begin
+    if (w_rframe_data_en_gen) begin
+        r_rframe_data_gen <= w_rframe_data_gen;          // load FIFO data directly
+    end else if (rframe_data_en) begin
+        r_rframe_data_gen <= r_rframe_data_gen >> R_WIDTH;
+    end
+end
+assign rframe_data = w_rfifo_empty ? {R_WIDTH{1'b0}} : r_rframe_data_gen[R_WIDTH-1:0];
+
+// Reset-busy delay: fill shift register with 1s after FIFO reset releases
+reg             [  15: 0]      rfifo_wr_rst_busy_dly = 'd0;
+always @(posedge axi4_clk or posedge r_rfifo_rst) begin
+    if (r_rfifo_rst) begin
         rfifo_wr_rst_busy_dly <= 'd0;
     end else begin
         rfifo_wr_rst_busy_dly <= {rfifo_wr_rst_busy_dly[14:0], 1'b1};
     end
 end
 
-wire                           rfifo_wr_rst_busy_neg      ;
-assign     rfifo_wr_rst_busy_neg= (rfifo_wr_rst_busy_dly[1:0] == 2'b01);// Detect the transition from busy to not busy
+wire rfifo_wr_rst_busy_neg;
+assign rfifo_wr_rst_busy_neg = (rfifo_wr_rst_busy_dly[1:0] == 2'b01);
 
-// read ddr delay counter: after the FIFO reset is released, we wait for a few cycles to ensure that the FIFO is ready before we start reading from it
-reg             [   4: 0]      read_ddr_delay_cnt         ;
-always @(posedge axi4_clk or negedge r_rfifo_rst_n) begin
-    if(!r_rfifo_rst_n) begin
+// Read DDR delay counter: wait 31 cycles after FIFO reset released
+reg             [   4: 0]      read_ddr_delay_cnt;
+always @(posedge axi4_clk or posedge r_rfifo_rst) begin
+    if (r_rfifo_rst) begin
         read_ddr_delay_cnt <= 5'b0;
     end else begin
         if (rfifo_wr_rst_busy_neg) begin
@@ -493,18 +483,17 @@ always @(posedge axi4_clk or negedge r_rfifo_rst_n) begin
     end
 end
 
-// Generate the read frame increment signal when the FIFO reset busy signal has transitioned to not busy and the read DDR delay counter has expired
-always @(posedge axi4_clk or negedge axi4_rst_n) begin
-    if(!axi4_rst_n) begin
+// r_rframe_inc: fires once after each FIFO reset release
+always @(posedge axi4_clk or posedge r_rfifo_rst) begin
+    if (r_rfifo_rst) begin
         r_rframe_inc <= 1'b0;
     end else begin
         r_rframe_inc <= rfifo_wr_rst_busy_neg;
     end
 end
 
-// Generate a flag to indicate when the read DDR delay has expired, which can be used to trigger the first read operation from the FIFO
-wire                           read_ddr_init_flag         ;
-assign     read_ddr_init_flag= (read_ddr_delay_cnt == 5'd1);
+wire read_ddr_init_flag;
+assign read_ddr_init_flag = (read_ddr_delay_cnt == 5'd1);
 
 
 localparam [1:0] S_READ_IDLE = 2'd0,
@@ -517,8 +506,8 @@ reg             [   8: 0]      rdata_cnt                  ;
 reg             [BUF_SIZE-1: 0]araddr                     ;
 reg                            r_rd_pend                =0;
 // Read state machine for AXI4 read operations
-always @(posedge axi4_clk or negedge r_rfifo_rst_n) begin
-    if(!r_rfifo_rst_n) begin
+always @(posedge axi4_clk or posedge r_rfifo_rst) begin
+    if(r_rfifo_rst) begin
         rd_state <= S_READ_IDLE;
     end else begin
         rd_state <= rd_next_state;
@@ -547,8 +536,8 @@ always @(*) begin
     endcase
 end
 // Read operation logic based on the current state of the read state machine
-always @(posedge axi4_clk or negedge r_rfifo_rst_n) begin
-    if(!r_rfifo_rst_n) begin
+always @(posedge axi4_clk or posedge r_rfifo_rst) begin
+    if(r_rfifo_rst) begin
         axi4_arvalid <= 1'b0;
         r_rd_pend <= 1'b0;
     end else begin
@@ -567,8 +556,8 @@ always @(posedge axi4_clk or negedge r_rfifo_rst_n) begin
 end
 
  
-always @(posedge axi4_clk or negedge r_rfifo_rst_n) begin
-    if(!r_rfifo_rst_n)begin
+always @(posedge axi4_clk or posedge r_rfifo_rst) begin
+    if(r_rfifo_rst)begin
         araddr <= '0;
     end else begin
         if (axi4_arvalid && axi4_arready) begin
@@ -612,5 +601,32 @@ end
 always @(posedge axi4_clk) begin
     rfifo_wdata <= axi4_rdata;
 end
+
+// --------------------------------------------------------------------------------
+// Debug outputs for ILA
+// dbg_wr[31:0] â€? write channel internal state
+wire [4:0] dbg_wfifo_we = rc_wfifo_we;               // pad to 5 bits
+assign dbg_wr = {
+    3'b0,                       // [31:29]
+    dbg_wfifo_we,               // [28:24] FIFO write counter (0~31)
+    rc_burst,                   // [23:16] burst beat counter (0~15)
+    8'b0,                       // [15:8]
+    r_weof_pending,             // [7]     frame-end pending
+    w_wfifo_empty,              // [6]     FIFO empty
+    r_wframe_inc,               // [5]     write frame increment
+    rc_wframe_index,            // [4:3]   write frame index
+    1'b0,                       // [2]
+    state_write                 // [1:0]   write FSM state
+};
+
+// dbg_rd[15:0] â€? read channel internal state
+assign dbg_rd = {
+    4'b0,                       // [15:12]
+    r_rframe_inc,               // [11]
+    read_ddr_init_flag,         // [10]
+    rc_rframe_index,            // [9:8]   read frame index
+    6'b0,                       // [7:2]
+    rd_state                    // [1:0]   read FSM state
+};
 
 endmodule

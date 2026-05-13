@@ -39,6 +39,10 @@ module sc1336_hdmi(
     output                              cmos_sclk                  ,
     inout                               cmos_sdat                  ,
 
+    // UART debug interface
+    input                               uart_rxd                   ,
+    output                              uart_txd                   ,
+
 	//DDR3 Interface (Internal)
     inout                [  31: 0]      ddr3_dq                    ,
     inout                [   3: 0]      ddr3_dqs_n                 ,
@@ -57,7 +61,7 @@ module sc1336_hdmi(
     output                              ddr3_we_n                  ,
     output               [   0: 0]      ddr3_odt                   ,
 	
-    output               [  14: 0]      ddr3_addr                  ,
+    output               [  13: 0]      ddr3_addr                  ,
     output               [   2: 0]      ddr3_ba                    ,
 
     //lcd interface
@@ -80,13 +84,15 @@ module sc1336_hdmi(
 wire                           clk_ctrl                   ;// 100MHz
 wire                           clk_video                  ;// 74.25MHz
 wire                           clk_cmos                   ;// 24MHz
-wire                           clk_ddr_ref                ;// 200MHz
+wire                           clk_ddr_ref                ;// 250MHz
+wire                           clk_ddr_ref_200m           ;// 200MHz (IDELAYCTRL ref)
 wire                           clk_ila                    ;// 100MHz
 wire                           clk_spare                  ;// 50MHz
 wire                           sys_rst_n                  ;
 wire                           cmos_sdat_in               ;
 wire                           cmos_sdat_out              ;
 wire                           cmos_sdat_oe               ;
+wire                           mig_sys_rst                ;
 
 sys_clk_ctrl#(
     .SYS_DELAY_TOP                      (24'd2500_000              ) // ~50ms delay @50MHz
@@ -99,10 +105,12 @@ sys_clk_ctrl#(
     .clk_ctrl                           (clk_ctrl                  ),// 100MHz
     .clk_video                          (clk_video                 ),// 74.25MHz
     .clk_cmos                           (clk_cmos                  ),// 24MHz
-    .clk_ddr_ref                        (clk_ddr_ref               ),// 200MHz
+    .clk_ddr_ref                        (clk_ddr_ref               ),// 250MHz
+    .clk_ddr_ref_200m                   (clk_ddr_ref_200m          ),// 200MHz
     .clk_ila                            (clk_ila                   ),// 100MHz
     .clk_spare                          (clk_spare                 ),// 50MHz
-    .sys_rst_n                          (sys_rst_n                 ) 
+    .sys_rst_n                          (sys_rst_n                 ),
+    .mig_sys_rst                        (mig_sys_rst               )
 );
 
 assign     cmos_xclk    = clk_cmos     ;
@@ -143,14 +151,20 @@ i2c_wr_16b8b#(
 i2c_sc1336_config u_i2c_sc1336_config(
     .LUT_INDEX                          (i2c_config_index          ),
     .LUT_DATA                           (i2c_config_data           ),
-    .LUT_SIZE                           (i2c_config_size           ) 
+    .LUT_SIZE                           (i2c_config_size           )
 );
-                                                            
 
+wire                           ddr_init_done              ;// DDR3 init/calibration done
+wire                           coms_ddr_init_done         ;// coms and ddr3 init/calibration done
+assign     coms_ddr_init_done= i2c_config_done && ddr_init_done;
+
+wire                           cmos_de                    ;
+assign     cmos_de = 1'b1;                                  // DVP: every PCLK during HREF is valid
 wire                           XYCrop_frame_vsync         ;
 wire                           XYCrop_frame_href          ;
 wire                           XYCrop_frame_de            ;
 wire            [   7: 0]      XYCrop_frame_data          ;
+
 Sensor_Image_XYCrop#(
     .IMAGE_HSIZE_SOURCE                 (IMAGE_HSIZE               ),
     .IMAGE_VSIZE_SOURCE                 (IMAGE_YSIZE               ),
@@ -161,7 +175,7 @@ Sensor_Image_XYCrop#(
  u_Sensor_Image_XYCrop(
 //globel clock
     .clk                                (cmos_pclk                 ),// image pixel clock
-    .rst_n                              (sys_rst_n                 ),
+    .rst_n                              (coms_ddr_init_done        ),
 //CMOS Sensor interface
     .image_in_vsync                     (cmos_vsync                ),// H : Data Valid; L : Frame Sync(Set it by register)
     .image_in_href                      (cmos_href                 ),// H : Data vaild, L : Line Sync
@@ -173,92 +187,418 @@ Sensor_Image_XYCrop#(
     .image_out_data                     (XYCrop_frame_data         ) // 8 bits cmos data input
 );
 
+reg                            r_XYCrop_frame_vsync     =0;
+reg                            r_XYCrop_frame_href      =0;
+reg                            r_XYCrop_frame_de        =0;
+reg             [   7: 0]      r_XYCrop_frame_Gray      =0;
+always @(posedge cmos_pclk) begin
+     r_XYCrop_frame_vsync <= XYCrop_frame_vsync;
+     r_XYCrop_frame_href <= XYCrop_frame_href;
+     r_XYCrop_frame_de <= XYCrop_frame_de;
+     r_XYCrop_frame_Gray <= XYCrop_frame_data;
+end
 
+wire                           cmos_frame_vsync           ;
+wire                           cmos_frame_href            ;
+wire            [   7: 0]      cmos_frame_Gray            ;
+wire                           cmos_vsync_end             ;
+assign     cmos_frame_vsync= r_XYCrop_frame_vsync;
+assign     cmos_frame_href= r_XYCrop_frame_href && r_XYCrop_frame_de;
+assign     cmos_frame_Gray= r_XYCrop_frame_Gray;
+	
 
-axi4_ctrl#(
-    .ID_LEN                             (8                         ),
-    .ADDR_LEN                           (32                        ),
-    .DATA_LEN                           (256                       ),
-    .DATA_SIZE                          (4                         ),
-    .STRB_LEN                           (                          ),
-    .BURST_LEN                          (16                        ),
-    .ADDR_INC                           (                          ),
-    .W_WIDTH                            (32                        ),
-    .R_WIDTH                            (8                         ),
-    .BUF_SIZE                           (22                        ),
-    .RD_END_ADDR                        (1280*720                  ),
-    .BASE_ADDR                          (32'h0000_0000             ) 
-)
- u_axi4_ctrl(
-    .axi4_clk                           (                          ),// AXI4 clock signal
-    .axi4_rst_n                         (                          ),// Active low reset signal for AXI4 interface
-// AW - Write Address Channel
-    .axi4_awid                          (                          ),
-    .axi4_awaddr                        (                          ),// 32 or 64 bits address
-    .axi4_awlen                         (                          ),// Burst length (number of data beats - 1)
-    .axi4_awsize                        (                          ),// Burst size (number of bytes per beat, encoded as log2(bytes))
-    .axi4_awburst                       (                          ),// Burst type
-    .axi4_awlock                        (                          ),// Lock type
-    .axi4_awcache                       (                          ),// Cache type
-    .axi4_awprot                        (                          ),// Protection type
-    .axi4_awqos                         (                          ),// Quality of Service
-    .axi4_awregion                      (                          ),// Region identifier
-    .axi4_awvalid                       (                          ),// Write address valid signal
-    .axi4_awready                       (                          ),// Write address ready signal
-// W - Write Data Channel
-    .axi4_wdata                         (                          ),// Write data bus
-    .axi4_wstrb                         (                          ),// Write strobes (indicates which bytes of the data bus are valid)
-    .axi4_wlast                         (                          ),// Write last signal (indicates the last data beat in a burst)
-    .axi4_wvalid                        (                          ),// Write data valid signal
-    .axi4_wready                        (                          ),// Write data ready signal
-// B - Write Response Channel
-    .axi4_bid                           (                          ),// Write response ID (should match the AWID of the corresponding write address)
-    .axi4_bresp                         (                          ),// Write response (indicates the status of the write transaction)
-    .axi4_bvalid                        (                          ),// Write response valid signal
-    .axi4_bready                        (                          ),// Write response ready signal
-// AR - Read Address Channel
-    .axi4_arid                          (                          ),// Read address ID (used to identify different read transactions)
-    .axi4_araddr                        (                          ),// 32 or 64 bits address
-    .axi4_arlen                         (                          ),// Burst length (number of data beats - 1)
-    .axi4_arsize                        (                          ),// Burst size (number of bytes per beat, encoded as log2(bytes))
-    .axi4_arburst                       (                          ),// Burst type
-    .axi4_arlock                        (                          ),// Lock type
-    .axi4_arcache                       (                          ),// Cache type
-    .axi4_arprot                        (                          ),// Protection type
-    .axi4_arqos                         (                          ),// Quality of Service
-    .axi4_arregion                      (                          ),// Region identifier
-    .axi4_arvalid                       (                          ),// Read address valid signal
-    .axi4_arready                       (                          ),// Read address ready signal
-// R - Read Data Channel
-    .axi4_rid                           (                          ),// Read response ID (should match the ARID of the corresponding read address)
-    .axi4_rdata                         (                          ),// Read data from slave (payload of read response)
-    .axi4_rresp                         (                          ),// Read response (indicates the status of the read transaction)
-    .axi4_rlast                         (                          ),// Last flag (indicates the last data beat in a burst)
-    .axi4_rvalid                        (                          ),// Read data valid signal
-    .axi4_rready                        (                          ),// Read data ready signal
-// Write Frame Interface
-    .wframe_pclk                        (                          ),// Write frame pixel clock
-    .wframe_vsync                       (                          ),// Write frame vertical sync signal
-    .wframe_data_en                     (                          ),// Write frame data enable signal
-    .wframe_data                        (                          ),// Write frame pixel data
-// Read Frame Interface
-    .rframe_pclk                        (                          ),// Read frame pixel clock
-    .rframe_vsync                       (                          ),// Read frame vertical sync signal
-    .rframe_data_en                     (                          ),// Read frame data enable signal
-    .rframe_data                        (                          ) // Read frame pixel data output
-);
 
 
 //****************************************************************************************//
-// LCD Driver
+// UART Debug (115200 bps, clk_ctrl=100MHz)
+//   'L'=LCD  'D'=dynamic XOR  'X'=static XOR  'G'=gray  'S'=Sensor  other=status
+//****************************************************************************************//
+wire            [   7: 0]      uart_rx_data;
+wire                           uart_rx_done;
+wire                           uart_tx_busy;
+
+reg             [   7: 0]      uart_tx_data;
+
+uart_rx #(
+    .CLK_FREQ                           (100_000_000               ),
+    .UART_BPS                           (115200                    )
+) u_uart_rx(
+    .clk                                (clk_ctrl                  ),
+    .rst_n                              (sys_rst_n                 ),
+    .uart_rxd                           (uart_rxd                  ),
+    .uart_rx_done                       (uart_rx_done              ),
+    .uart_rx_data                       (uart_rx_data              )
+);
+
+uart_tx #(
+    .CLK_FREQ                           (100_000_000               ),
+    .UART_BPS                           (115200                    )
+) u_uart_tx(
+    .clk                                (clk_ctrl                  ),
+    .rst_n                              (sys_rst_n                 ),
+    .uart_tx_en                         (uart_rx_done              ),  // echo back
+    .uart_tx_data                       (uart_tx_data              ),
+    .uart_txd                           (uart_txd                  ),
+    .uart_tx_busy                       (uart_tx_busy              )
+);
+
+// Command register
+reg             [   7: 0]      dbg_cmd = 8'h00;
+always @(posedge clk_ctrl) begin
+    if (uart_rx_done)
+        dbg_cmd <= uart_rx_data;
+end
+
+wire                           DBG_LCD  = (dbg_cmd == "L");
+wire                           DBG_XOR  = (dbg_cmd == "X");   // DDR + static XOR   // LCD test (bypass DDR)
+wire                           DBG_DDR  = (dbg_cmd == "D");   // DDR test with grayscale pattern
+wire                           DBG_GRAY = (dbg_cmd == "G");   // DDR test with constant 0xA5
+wire                           DBG_SEN  = (dbg_cmd == "S");   // Sensor
+
+
+//****************************************************************************************//
+// DDR Test Pattern Generator ---> switch TEST_DDR to 0 for normal sensor input
+//****************************************************************************************//
+wire            [  23: 0]      test_lcd_data;                 // from lcd_display_test
+
+// TEST_DDR/TEST_MODE & data source controlled by UART:
+//   'L'=LCD test  |  'D'=DDR+pattern  |  'G'=DDR+gray  |  'S'=Sensor
+reg                             TEST_DDR = 1'b1;                // default: DDR test
+reg                             TEST_MODE = 1'b0;               // default: DDR竊鱈CD
+reg                             USE_GRAY = 1'b0;                // 0=XOR, 1=gray
+reg                             USE_DYNAMIC = 1'b1;            // 0=static, 1=dynamic                // default: constant gray
+always @(posedge clk_ctrl) begin
+    if (DBG_LCD) begin
+        TEST_MODE <= 1'b1; TEST_DDR <= 1'b1; USE_GRAY <= 1'b0; USE_DYNAMIC <= 1'b0;
+    end else if (DBG_DDR) begin
+        TEST_MODE <= 1'b0; TEST_DDR <= 1'b1; USE_GRAY <= 1'b0; USE_DYNAMIC <= 1'b1;
+    end else if (DBG_XOR) begin
+        TEST_MODE <= 1'b0; TEST_DDR <= 1'b1; USE_GRAY <= 1'b0; USE_DYNAMIC <= 1'b0;
+    end else if (DBG_GRAY) begin
+        TEST_MODE <= 1'b0; TEST_DDR <= 1'b1; USE_GRAY <= 1'b1; USE_DYNAMIC <= 1'b0;
+    end else if (DBG_SEN) begin
+        TEST_MODE <= 1'b0; TEST_DDR <= 1'b0; USE_GRAY <= 1'b0; USE_DYNAMIC <= 1'b0;
+    end
+end
+
+// DDR test: same grayscale data as LCD test pattern, for A/B comparison
+//   L mode: grayscale -> LCD directly (bypass DDR)
+//   D mode: grayscale -> DDR -> LCD (verify DDR loop)
+//   Both modes show identical pattern -> any difference = DDR bug
+wire            [   9: 0]      rgb_sum = {2'b0, test_lcd_data[23:16]}
+                                      + {2'b0, test_lcd_data[15: 8]}
+                                      + {2'b0, test_lcd_data[ 7: 0]};
+wire            [   7: 0]      test_gray = rgb_sum[9:2];    // (R+G+B)/4
+
+// DDR test: write @ 24MHz (clk_cmos), read @ 74.25MHz (clk_video)
+// Separate clocks = no frame tearing 窶? independent X Y counters
+localparam H_ACTIVE = 12'd1280, H_BLANK = 12'd120, H_TOTAL = H_ACTIVE + H_BLANK;
+localparam V_ACTIVE = 12'd720,  V_BLANK = 12'd10,  V_TOTAL = V_ACTIVE + V_BLANK;
+reg  [11:0] ddr_test_x, ddr_test_y;
+reg         ddr_test_vsync, ddr_test_href;
+always @(posedge clk_cmos or negedge sys_rst_n) begin
+    if (!sys_rst_n) begin
+        ddr_test_x <= 0; ddr_test_y <= 0;
+        ddr_test_vsync <= 0; ddr_test_href <= 0;
+    end else begin
+        ddr_test_x <= (ddr_test_x < H_TOTAL - 1) ? ddr_test_x + 1 : 0;
+        if (ddr_test_x == H_TOTAL - 1)
+            ddr_test_y <= (ddr_test_y < V_TOTAL - 1) ? ddr_test_y + 1 : 0;
+        ddr_test_vsync <= (ddr_test_y < V_ACTIVE);
+        ddr_test_href  <= (ddr_test_y < V_ACTIVE && ddr_test_x < H_ACTIVE);
+    end
+end
+// Dynamic mode: frame counter shifts XOR each frame 竊? moving pattern
+reg  [7:0] frame_color;
+reg        ddr_vsync_d1;
+always @(posedge clk_cmos or negedge sys_rst_n) begin
+    if (!sys_rst_n) begin
+        frame_color <= 0; ddr_vsync_d1 <= 0;
+    end else begin
+        ddr_vsync_d1 <= ddr_test_vsync;
+        if (ddr_vsync_d1 && !ddr_test_vsync)           // vsync falling edge
+            frame_color <= frame_color + 1'b1;
+    end
+end
+// Second lcd_display_test @ 24MHz: uses ddr_test_x/y as coords, ddr_test_vsync for gating
+wire [23:0] ddr_pattern_24m;
+lcd_display_test #(.DELAY_TOP(24_000_000)) u_ddr_pattern(
+    .clk      (clk_cmos),
+    .rst_n    (sys_rst_n),
+    .vsync    (ddr_test_vsync),
+    .lcd_xpos (ddr_test_x),
+    .lcd_ypos (ddr_test_y),
+    .lcd_data (ddr_pattern_24m)
+);
+wire [9:0] ddr_pat_sum = {2'b0, ddr_pattern_24m[23:16]}
+                       + {2'b0, ddr_pattern_24m[15: 8]}
+                       + {2'b0, ddr_pattern_24m[ 7: 0]};
+wire [7:0] ddr_pat_gray = ddr_pat_sum[9:2];    // (R+G+B)/4
+
+wire [7:0] ddr_test_data = USE_GRAY    ? 8'hA5 :
+                           USE_DYNAMIC ? ddr_pat_gray :
+                                         (ddr_test_x[7:0] ^ ddr_test_y[7:0]);
+
+wire [7:0] wframe_data_w = TEST_DDR ? ddr_test_data : cmos_frame_Gray;
+wire       wframe_vsync_w = TEST_DDR ? ddr_test_vsync : cmos_frame_vsync;
+wire       wframe_href_w  = TEST_DDR ? (ddr_test_href & ddr_test_vsync) : cmos_frame_href;
+wire       wframe_clk     = TEST_DDR ? clk_cmos : cmos_pclk;
+
+wire            [  31: 0]      dbg_wr                      ;
+wire            [  15: 0]      dbg_rd                      ;
+
+
+
+
+
+// ----------------------------------------------------------------------------------------
+wire                           ui_clk                     ;//166.67MHz (4:1 mode)
+wire                           ui_clk_sync_rst            ;
+
+wire                           ddr3_aresetn               ;// Active low reset for DDR3 controller, synchronized to ui_clk
+// AXI4 Write Address Channel
+wire            [   3: 0]      s_axi_awid                 ;
+wire            [  28: 0]      s_axi_awaddr               ;
+wire            [   7: 0]      s_axi_awlen                ;
+wire            [   2: 0]      s_axi_awsize               ;
+wire            [   1: 0]      s_axi_awburst              ;
+wire            [   0: 0]      s_axi_awlock               ;
+wire            [   3: 0]      s_axi_awcache              ;
+wire            [   2: 0]      s_axi_awprot               ;
+wire            [   3: 0]      s_axi_awqos                ;
+wire                           s_axi_awvalid              ;
+wire                           s_axi_awready              ;
+// AXI4 Write Data Channel
+wire            [ 255: 0]      s_axi_wdata                ;
+wire            [  31: 0]      s_axi_wstrb                ;
+wire                           s_axi_wlast                ;
+wire                           s_axi_wvalid               ;
+wire                           s_axi_wready               ;
+// AXI4 Write Response Channel
+wire            [   3: 0]      s_axi_bid                  ;
+wire            [   1: 0]      s_axi_bresp                ;
+wire                           s_axi_bvalid               ;
+wire                           s_axi_bready               ;
+// AXI4 Read Address Channel
+wire            [   3: 0]      s_axi_arid                 ;
+wire            [  28: 0]      s_axi_araddr               ;
+wire            [   7: 0]      s_axi_arlen                ;
+wire            [   2: 0]      s_axi_arsize               ;
+wire            [   1: 0]      s_axi_arburst              ;
+wire            [   0: 0]      s_axi_arlock               ;
+wire            [   3: 0]      s_axi_arcache              ;
+wire            [   2: 0]      s_axi_arprot               ;
+wire            [   3: 0]      s_axi_arqos                ;
+wire                           s_axi_arvalid              ;
+wire                           s_axi_arready              ;
+// AXI4 Read Data Channel
+wire            [   3: 0]      s_axi_rid                  ;
+wire            [ 255: 0]      s_axi_rdata                ;
+wire            [   1: 0]      s_axi_rresp                ;
+wire                           s_axi_rlast                ;
+wire                           s_axi_rvalid               ;
+wire                           s_axi_rready               ;
+
+assign     ddr3_aresetn = ~ui_clk_sync_rst;
+
 wire                           lcd_clk                    ;
 assign     lcd_clk      = clk_video    ;
 
 wire            [  11: 0]      lcd_xpos                   ;
 wire            [  11: 0]      lcd_ypos                   ;
-wire            [  23: 0]      lcd_data                   ;
+wire            [   7: 0]      w_lcd_data                 ;
+wire                           w_lcd_de                   ;
 wire                           lcd_dclk_reg               ;
 
+DDR3_0 ddr3 (
+    // DDR3 Physical Interface
+    .ddr3_dq                            (ddr3_dq                   ),// DDR3 data bus
+    .ddr3_dqs_n                         (ddr3_dqs_n                ),// DDR3 data strobe negative
+    .ddr3_dqs_p                         (ddr3_dqs_p                ),// DDR3 data strobe positive
+    .ddr3_addr                          (ddr3_addr                 ),// DDR3 address bus
+    .ddr3_ba                            (ddr3_ba                   ),// DDR3 bank address
+    .ddr3_ras_n                         (ddr3_ras_n                ),// DDR3 row address strobe (active low)
+    .ddr3_cas_n                         (ddr3_cas_n                ),// DDR3 column address strobe (active low)
+    .ddr3_we_n                          (ddr3_we_n                 ),// DDR3 write enable (active low)
+    .ddr3_reset_n                       (ddr3_reset_n              ),// DDR3 reset (active low)
+    .ddr3_ck_p                          (ddr3_ck_p                 ),// DDR3 differential clock positive
+    .ddr3_ck_n                          (ddr3_ck_n                 ),// DDR3 differential clock negative
+    .ddr3_cke                           (ddr3_cke                  ),// DDR3 clock enable
+    .ddr3_cs_n                          (ddr3_cs_n                 ),// DDR3 chip select (active low)
+    .ddr3_dm                            (ddr3_dm                   ),// DDR3 data mask
+    .ddr3_odt                           (ddr3_odt                  ),// DDR3 on-die termination enable
+
+    // User Clock and Reset
+    .ui_clk                             (ui_clk                    ),// MIG user clock output (1/4 DDR3 clock freq)
+    .ui_clk_sync_rst                    (ui_clk_sync_rst           ),// MIG synchronous reset output
+    .mmcm_locked                        (                          ),// MMCM locked indicator
+    .aresetn                            (ddr3_aresetn              ),// AXI interconnect reset (active low)
+
+    // Application Control Requests (unused)
+    .app_sr_req                         (0                         ),// Self-refresh request
+    .app_ref_req                        (0                         ),// Refresh request
+    .app_zq_req                         (0                         ),// ZQ calibration request
+    .app_sr_active                      (                          ),// Self-refresh active indicator
+    .app_ref_ack                        (                          ),// Refresh acknowledge
+    .app_zq_ack                         (                          ),// ZQ calibration acknowledge
+
+    // AXI4 Write Address Channel
+    .s_axi_awid                         (s_axi_awid                ),// Write address ID
+    .s_axi_awaddr                       (s_axi_awaddr              ),// Write address
+    .s_axi_awlen                        (s_axi_awlen               ),// Burst length
+    .s_axi_awsize                       (s_axi_awsize              ),// Burst size
+    .s_axi_awburst                      (s_axi_awburst             ),// Burst type
+    .s_axi_awlock                       (s_axi_awlock              ),// Lock type
+    .s_axi_awcache                      (s_axi_awcache             ),// Cache type
+    .s_axi_awprot                       (s_axi_awprot              ),// Protection type
+    .s_axi_awqos                        (s_axi_awqos               ),// QoS identifier
+    .s_axi_awvalid                      (s_axi_awvalid             ),// Write address valid
+    .s_axi_awready                      (s_axi_awready             ),// Write address ready
+
+    // AXI4 Write Data Channel
+    .s_axi_wdata                        (s_axi_wdata               ),// Write data
+    .s_axi_wstrb                        (s_axi_wstrb               ),// Write byte strobe
+    .s_axi_wlast                        (s_axi_wlast               ),// Write last beat
+    .s_axi_wvalid                       (s_axi_wvalid              ),// Write data valid
+    .s_axi_wready                       (s_axi_wready              ),// Write data ready
+
+    // AXI4 Write Response Channel
+    .s_axi_bready                       (s_axi_bready              ),// Write response ready
+    .s_axi_bid                          (s_axi_bid                 ),// Write response ID
+    .s_axi_bresp                        (s_axi_bresp               ),// Write response status
+    .s_axi_bvalid                       (s_axi_bvalid              ),// Write response valid
+
+    // AXI4 Read Address Channel
+    .s_axi_arid                         (s_axi_arid                ),// Read address ID
+    .s_axi_araddr                       (s_axi_araddr              ),// Read address
+    .s_axi_arlen                        (s_axi_arlen               ),// Burst length
+    .s_axi_arsize                       (s_axi_arsize              ),// Burst size
+    .s_axi_arburst                      (s_axi_arburst             ),// Burst type
+    .s_axi_arlock                       (s_axi_arlock              ),// Lock type
+    .s_axi_arcache                      (s_axi_arcache             ),// Cache type
+    .s_axi_arprot                       (s_axi_arprot              ),// Protection type
+    .s_axi_arqos                        (s_axi_arqos               ),// QoS identifier
+    .s_axi_arvalid                      (s_axi_arvalid             ),// Read address valid
+    .s_axi_arready                      (s_axi_arready             ),// Read address ready
+
+    // AXI4 Read Data Channel
+    .s_axi_rready                       (s_axi_rready              ),// Read data ready
+    .s_axi_rid                          (s_axi_rid                 ),// Read data ID
+    .s_axi_rdata                        (s_axi_rdata               ),// Read data
+    .s_axi_rresp                        (s_axi_rresp               ),// Read response status
+    .s_axi_rlast                        (s_axi_rlast               ),// Read last beat
+    .s_axi_rvalid                       (s_axi_rvalid              ),// Read data valid
+
+    // Status and System
+    .init_calib_complete                (ddr_init_done             ),// DDR3 init/calibration complete
+    .device_temp                        (                          ),// FPGA device temperature (unused)
+
+    // System Clock and Reset
+    .sys_clk_i                          (clk_ddr_ref               ),// MIG system clock input 250MHz
+    .clk_ref_i                          (clk_ddr_ref_200m          ),// IDELAYCTRL ref clock 200MHz
+    .sys_rst                            (mig_sys_rst               ) // MIG system reset
+    );
+
+axi4_ctrl#(
+    .ID_LEN                             (8                         ),
+    .ADDR_LEN                           (32                        ),
+    .DATA_LEN                           (256                       ),
+    .DATA_SIZE                          (5                         ),// 2^5=32B=256-bit
+    .STRB_LEN                           (                          ),
+    .BURST_LEN                          (16                        ),
+    .ADDR_INC                           (                          ),
+    .W_WIDTH                            (8                         ),
+    .R_WIDTH                            (8                         ),
+    .BUF_SIZE                           (22                        ),
+    .RD_END_ADDR                        (1280*720                  ),
+    .BASE_ADDR                          (32'h0000_0000             )
+)
+ u_axi4_ctrl(
+    .axi4_clk                           (ui_clk                    ),// AXI4 clock signal
+    .axi4_rst_n                         (~ui_clk_sync_rst          ),// Active low reset signal for AXI4 interface
+// AW - Write Address Channel
+    .axi4_awid                          (s_axi_awid                ),// [7:0]竊端3:0]
+    .axi4_awaddr                        (s_axi_awaddr              ),// [31:0]竊端28:0]
+    .axi4_awlen                         (s_axi_awlen               ),// Burst length
+    .axi4_awsize                        (s_axi_awsize              ),// Burst size
+    .axi4_awburst                       (s_axi_awburst             ),// Burst type
+    .axi4_awlock                        (s_axi_awlock              ),// [1:0]竊端0:0]
+    .axi4_awcache                       (s_axi_awcache             ),// Cache type
+    .axi4_awprot                        (s_axi_awprot              ),// Protection type
+    .axi4_awqos                         (s_axi_awqos               ),// QoS identifier
+    .axi4_awregion                      (                          ),// Not used by MIG
+    .axi4_awvalid                       (s_axi_awvalid             ),// Write address valid
+    .axi4_awready                       (s_axi_awready             ),// Write address ready
+// W - Write Data Channel
+    .axi4_wdata                         (s_axi_wdata               ),// Write data bus
+    .axi4_wstrb                         (s_axi_wstrb               ),// Write byte strobe
+    .axi4_wlast                         (s_axi_wlast               ),// Write last beat
+    .axi4_wvalid                        (s_axi_wvalid              ),// Write data valid
+    .axi4_wready                        (s_axi_wready              ),// Write data ready
+// B - Write Response Channel
+    .axi4_bid                           (s_axi_bid                 ),// [3:0]竊端7:0]
+    .axi4_bresp                         (s_axi_bresp               ),// Write response
+    .axi4_bvalid                        (s_axi_bvalid              ),// Write response valid
+    .axi4_bready                        (s_axi_bready              ),// Write response ready
+// AR - Read Address Channel
+    .axi4_arid                          (s_axi_arid                ),// [7:0]竊端3:0]
+    .axi4_araddr                        (s_axi_araddr              ),// [31:0]竊端28:0]
+    .axi4_arlen                         (s_axi_arlen               ),// Burst length
+    .axi4_arsize                        (s_axi_arsize              ),// Burst size
+    .axi4_arburst                       (s_axi_arburst             ),// Burst type
+    .axi4_arlock                        (s_axi_arlock              ),// [1:0]竊端0:0]
+    .axi4_arcache                       (s_axi_arcache             ),// Cache type
+    .axi4_arprot                        (s_axi_arprot              ),// Protection type
+    .axi4_arqos                         (s_axi_arqos               ),// QoS identifier
+    .axi4_arregion                      (                          ),// Not used by MIG
+    .axi4_arvalid                       (s_axi_arvalid             ),// Read address valid
+    .axi4_arready                       (s_axi_arready             ),// Read address ready
+// R - Read Data Channel
+    .axi4_rid                           (s_axi_rid                 ),// [3:0]竊端7:0]
+    .axi4_rdata                         (s_axi_rdata               ),// Read data
+    .axi4_rresp                         (s_axi_rresp               ),// Read response
+    .axi4_rlast                         (s_axi_rlast               ),// Read last beat
+    .axi4_rvalid                        (s_axi_rvalid              ),// Read data valid
+    .axi4_rready                        (s_axi_rready              ),// Read data ready
+// Write Frame Interface
+    .wframe_pclk                        (wframe_clk                ),// Write clock
+    .wframe_vsync                       (wframe_vsync_w            ),// Write frame vsync
+    .wframe_data_en                     (wframe_href_w             ),// Write data enable
+    .wframe_data                        (wframe_data_w             ),// Write frame pixel data
+// Read Frame Interface
+    .rframe_pclk                        (clk_video                 ),// LCD pixel clock 74.25MHz
+    .rframe_vsync                       (lcd_vs                    ),// Read frame vsync
+    .rframe_data_en                     (w_lcd_de                  ),// Read data request
+    .rframe_data                        (w_lcd_data                ),// Read frame pixel data output
+    // Debug ports for ILA
+    .dbg_wr                             (dbg_wr                    ),
+    .dbg_rd                             (dbg_rd                    )
+);
+
+
+
+//****************************************************************************************//
+// LCD Test Pattern Generator ---> switch TEST_MODE to 0 after LCD is verified
+//****************************************************************************************//
+// TEST_MODE is now a reg controlled by UART (see above)
+wire            [  23: 0]      lcd_data_src                 ;
+
+lcd_display_test #(
+    .DELAY_TOP                          (74_250000                 ) // 1s per pattern
+) u_lcd_display_test(
+    .clk                                (lcd_clk                   ),
+    .rst_n                              (sys_rst_n                 ),
+    .vsync                              (lcd_vs                    ),// 0=blanking
+    .lcd_xpos                           (lcd_xpos                  ),
+    .lcd_ypos                           (lcd_ypos                  ),
+    .lcd_data                           (test_lcd_data             )
+);
+
+// L mode: same test_gray as D mode writes to DDR -> identical visual for A/B comparison
+assign lcd_data_src = TEST_MODE ? {3{test_gray}} : {3{w_lcd_data}};
+
+//****************************************************************************************//
+// LCD Driver
 lcd_driver u_lcd_driver(
     .clk                                (lcd_clk                   ),//720P@60FPS 74.25MHz
     .rst_n                              (sys_rst_n                 ),
@@ -272,10 +612,10 @@ lcd_driver u_lcd_driver(
     .lcd_rgb                            ({lcd_red, lcd_green, lcd_blue}),
 
     // User interface
-    .lcd_data                           (lcd_data                  ),
-    .lcd_request                        (                          ),
+    .lcd_data                           (lcd_data_src              ),
+    .lcd_request                        (w_lcd_de                  ),
     .lcd_xpos                           (lcd_xpos                  ),
-    .lcd_ypos                           (lcd_ypos                  ) 
+    .lcd_ypos                           (lcd_ypos                  )
 );
 
 
@@ -291,7 +631,86 @@ ODDR #(
     .D1                                 (1'b1                      ),// 1-bit data input (positive edge)
     .D2                                 (1'b0                      ),// 1-bit data input (negative edge)
     .R                                  (1'b0                      ),// 1-bit reset
-    .S                                  (1'b0                      ) // 1-bit set
+    
+.S                                  (1'b0                      ) // 1-bit set
 );
+
+// UART TX data: echo command, or status byte
+
+
+always @(posedge clk_ctrl) begin
+    if (uart_rx_done)
+        uart_tx_data <= uart_rx_data;
+    else if (!DBG_LCD && !DBG_DDR && !DBG_GRAY && !DBG_SEN)
+      uart_tx_data <= {3'b0, ddr_init_done, ui_clk_sync_rst, sys_rst_n, TEST_MODE, TEST_DDR};
+end
+
+
+//****************************************************************************************//
+// ILA Debug ---> define USE_ILA to enable
+//****************************************************************************************//
+`ifdef USE_ILA
+wire            [  31: 0]      ila_probe0;
+wire            [  31: 0]      ila_probe1;
+wire            [  15: 0]      ila_probe2;
+
+assign ila_probe0 = {
+    wframe_data_w,              // [31:24]  write data INTO FIFO
+    s_axi_wdata[7:0],           // [23:16]  write data on AXI bus
+    wframe_vsync_w,             // [15]     write vsync
+    wframe_href_w,              // [14]     write data enable
+    dbg_wr[7],                  // [13]     r_weof_pending
+    dbg_wr[6],                  // [12]     w_wfifo_empty
+    s_axi_wlast,                // [11]     write last
+    s_axi_wready,               // [10]     write ready
+    s_axi_wvalid,               // [9]      write valid
+    s_axi_awready,              // [8]      aw ready
+    s_axi_awvalid,              // [7]      aw valid
+    dbg_wr[28:24],              // [6:2]    rc_wfifo_we
+    dbg_wr[1:0]                 // [1:0]    state_write
+};
+
+assign ila_probe1 = {
+    w_lcd_data,                 // [31:24]  pixel data TO LCD
+    s_axi_rdata[7:0],           // [23:16]  read data from DDR
+    lcd_vs,                     // [15]     LCD/read vsync
+    lcd_de,                     // [14]     LCD active area
+    w_lcd_de,                   // [13]     LCD requesting data
+    s_axi_rlast,                // [12]     read last
+    s_axi_rvalid,               // [11]     read data valid
+    s_axi_rready,               // [10]     read ready
+    s_axi_arvalid,              // [9]      ar valid
+    s_axi_arready,              // [8]      ar ready
+    dbg_rd[10],                 // [7]      read_ddr_init_flag
+    dbg_rd[11],                 // [6]      r_rframe_inc
+    dbg_rd[9:8],                // [5:4]    rc_rframe_index
+    dbg_rd[1:0],                // [3:2]    rd_state
+    2'b0                        // [1:0]
+};
+
+assign ila_probe2 = {
+    mig_sys_rst,                // [15]
+    wframe_vsync_w,             // [14]     write vsync
+    lcd_vs,                     // [13]     read/LCD vsync
+    dbg_wr[5],                  // [12]     r_wframe_inc
+    dbg_rd[11],                 // [11]     r_rframe_inc
+    dbg_wr[4:3],                // [10:9]   rc_wframe_index
+    dbg_rd[9:8],                // [8:7]    rc_rframe_index
+    TEST_MODE,                  // [6]
+    TEST_DDR,                   // [5]
+    sys_rst_n,                  // [4]
+    ui_clk_sync_rst,            // [3]
+    ddr_init_done,              // [2]
+    s_axi_bvalid,               // [1]
+    s_axi_bready                // [0]
+};
+
+ila_0 u_ila_0 (
+    .clk                                (clk_ddr_ref_200m          ),
+    .probe0                             (ila_probe0                ),
+    .probe1                             (ila_probe1                ),
+    .probe2                             (ila_probe2                )
+);
+`endif
 
 endmodule

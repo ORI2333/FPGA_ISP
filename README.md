@@ -7,6 +7,9 @@ FPGA ISP (Image Signal Processing) project repository.
 This repository is used to store FPGA-based ISP related design files, code, and documentation.
 
 ## 修订记录
+### 0.1.2 (2026/05/13)
+- AXI4 + DDR3 驱动写好,测试通过
+
 ### 0.1.1 (2026/04/20)
 - SC1336 驱动写好，但尚未测试
 

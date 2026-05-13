@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Recurse -Depth 2 \"F:\\\\FPGA_ReferenceMaterials\\\\szovs\\\\VF-X70K676 HDK_V2.0_20251010\\\\VF-X70K676 HDK_V2.0_20251010\\\\06_FPGA_Example_Basic\\\\03-2_DDR_2Port_HDMI_Test_1280x720\")",
+      "Bash(Format-Table -AutoSize FullName)",
+      "Read(//f/FPGA_ReferenceMaterials/szovs/VF-X70K676 HDK_V2.0_20251010/VF-X70K676 HDK_V2.0_20251010/06_FPGA_Example_Basic/03-2_DDR_2Port_HDMI_Test_1280x720/**)",
+      "Bash(head -n 500 \"e:\\\\E_EngineeringWarehouse\\\\FPGA_ISP\\\\FPGA_ISP\\\\sc1336_hdmi\\\\rtl\\\\sc1336_hdmi.sv\" > /tmp/sc1336_hdmi_clean.sv 2>&1 && echo \"OK\")",
+      "Read(//e/E_EngineeringWarehouse/FPGA_ISP/test/02-1_CMOS_SC130GS_Gray_HDMI_720P/src/**)",
+      "Read(//e/E_EngineeringWarehouse/FPGA_ISP/test/02-1_CMOS_SC130GS_Gray_HDMI_720P/**)"
+    ],
+    "additionalDirectories": [
+      "\\tmp"
+    ]
+  }
+}
